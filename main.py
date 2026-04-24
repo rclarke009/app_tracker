@@ -21,9 +21,9 @@ def connect_to_sheets():
 
     return sheet
 
-def get_user_input() -> str:
-    user_input = input("What exercise did you do? ")
-    return user_input
+# def get_user_input() -> str:
+#     user_input = input("What exercise did you do? ")
+#     return user_input
 
 def connect_to_nutrix(user_input):
 
