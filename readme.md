@@ -17,4 +17,15 @@ gunicorn app:app
 
 gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000
 
+uvicorn app:app
 
+
+Step	What you’re learning
+Form / JSON
+FastAPI turns HTTP into Python types (Form, Pydantic model, or raw dict).
+LLM
+
+One requests.post (or the official client) with a string prompt; you get a string (or JSON) back.
+Sheet
+
+Reuse your gspread client; append one row with whatever columns you need (e.g. timestamp, user text, LLM answer).

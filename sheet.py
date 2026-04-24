@@ -4,10 +4,6 @@ import requests
 from datetime import datetime
 
 
-class Sheet():
-    
-
-
 
 def connect_to_sheets():
     SCOPES = [
@@ -25,10 +21,12 @@ def connect_to_sheets():
 
     return sheet
 
+def connect_to_sheet(user_input):
+
 
 
 def append_to_sheet(user_input, sheet):
-    data = connect_to_nutrix(user_input)
+    data = connect_to_sheet(user_input)
 
     now = datetime.now()
     date = now.strftime("%d/%m/%Y")
