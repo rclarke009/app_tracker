@@ -2,6 +2,11 @@ import gspread
 from google.oauth2.service_account import Credentials
 import requests
 from datetime import datetime
+from pathlib import Path
+
+def _credentials_path() -> Path:
+    # Directory containing sheet.py (…/jobapp_tracker)
+    return Path(__file__).resolve().parent / "credentials.json"
 
 
 
@@ -11,8 +16,14 @@ def connect_to_sheets():
         "https://www.googleapis.com/auth/drive",
     ]
 
+    p = _credentials_path()
+    if not p.is_file():
+        raise FileNotFoundError(
+            f"Service account JSON not found at {p} (set CREDENTIALS_PATH to override)"
+        )
+
     creds = Credentials.from_service_account_file(
-        "credentials.json",
+        str(_credentials_path()),
         scopes=SCOPES
     )
 
