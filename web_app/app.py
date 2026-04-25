@@ -1,13 +1,23 @@
 import gunicorn
+from datetime import datetime
+import logging
+import os
+import json
+
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel, ValidationError
-import os
-from datetime import datetime
-from jobapp_tracker.sheet import append_to_sheet
-from jobapp_tracker.web_app.models import UserInput, JobExtraction
-import json
+from fastapi import HTTPException
+
+from jobapp_tracker.web_app.models import JobInfo, UserInput, JobExtraction
+from jobapp_tracker.db import add_job, get_jobs
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 app = FastAPI()
 
@@ -26,24 +36,44 @@ Base everything ONLY on the user's text."""
 def extract_job_fields(job_text: str) -> JobExtraction:
     api_key = os.environ.get("OPENAI_API_KEY")  # example
     if not api_key:
-        raise RuntimeError("Set OPENAI_API_KEY")
-    r = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": "gpt-4o-mini",
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": EXTRACTION_SYSTEM},
-                {
-                    "role": "user",
-                    "content": f"Job posting text:\n\n{job_text}",
-                },
-            ],
-        },
-        timeout=120,
-    )
-    r.raise_for_status()
+        logger.error("OPENAI_API_KEY is not set")
+        raise HTTPException(
+            status_code=503,
+            detail="Extraction is not configured on this server",
+        )
+
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": "gpt-4o-mini",
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": EXTRACTION_SYSTEM},
+                    {
+                        "role": "user",
+                        "content": f"Job posting text:\n\n{job_text}",
+                    },
+                ],
+            },
+            timeout=120,
+        )
+        r.raise_for_status()
+
+    except requests.Timeout:
+        logger.exception("OpenAI request timed out")
+        raise HTTPException(
+            status_code=503,
+            detail="Extraction service timed out; try again later",
+        )
+    except requests.RequestException:
+        logger.exception("OpenAI request failed")
+        raise HTTPException(
+            status_code=502,
+            detail="Extraction service returned an error",
+        )
+
     raw = r.json()["choices"][0]["message"]["content"].strip()
     try:
         return JobExtraction.model_validate_json(raw)
@@ -52,41 +82,36 @@ def extract_job_fields(job_text: str) -> JobExtraction:
         return JobExtraction.model_validate(json.loads(raw))
 
 
-# def call_llm(user_text: str) -> str:
-#     """Replace with your provider (OpenAI, Anthropic, local Ollama, etc.)."""
-#     api_key = os.environ.get("OPENAI_API_KEY")  # example
-#     if not api_key:
-#         return "[configure OPENAI_API_KEY]"
-#     # Example: OpenAI chat completions — adjust model/URL for your stack
-#     r = requests.post(
-#         "https://api.openai.com/v1/chat/completions",
-#         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-#         json={
-#             "model": "gpt-4o-mini",
-#             "messages": [
-#                 {"role": "system", "content": "Summarize the job in one line for a tracker row."},
-#                 {"role": "user", "content": user_text},
-#             ],
-#         },
-#         timeout=60,
-#     )
-#     r.raise_for_status()
-#     data = r.json()
-#     return data["choices"][0]["message"]["content"].strip()
-
-
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 @app.post("/log-job")
 def log_job(body: UserInput):
-    summary = extract_job_fields(body.job_text)
+    if not (body.job_text or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="job_text cannot be empty",
+        )
+
+    extraction_data = extract_job_fields(body.job_text)
+    summary = extraction_data.job_summary
+    salary = extraction_data.salary
+    title = extraction_data.job_title
+
     url_str = str(body.job_url) if body.job_url else ""
     resume = str(body.resume_choice) if body.resume_choice else ""
-    append_to_sheet([datetime.now().isoformat(), url_str, resume, summary])
-    # sheet.append_row([datetime.utcnow().isoformat(), body.text[:200], summary])
+
+    job_to_add = JobInfo(
+        datetime.now().isoformat(), 
+        body.job_text,
+        url_str, 
+        resume, 
+        title, 
+        salary,
+        summary
+    )
+    add_job(job_to_add)
     return {"summary": summary, "ok": True}
 
 
